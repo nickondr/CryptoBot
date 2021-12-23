@@ -17,8 +17,6 @@ logger = logging.getLogger()
 class BinanceFuturesClient:
     def __init__(self, public_key: str, secret_key: str, testnet: bool):
 
-        # self.root = root
-
         if testnet:
             self._base_url = "https://testnet.binancefuture.com"
             self._wss_url = "wss://stream.binancefuture.com/ws"
@@ -89,7 +87,7 @@ class BinanceFuturesClient:
 
         if exchange_info is not None:
             for contract_data in exchange_info['symbols']:
-                contracts[contract_data['pair']] = Contract(contract_data, "binance")
+                contracts[contract_data['symbol']] = Contract(contract_data, "binance")
         return contracts
 
     def get_historical_candles(self, contract: Contract, interval: str) -> typing.List[Candle]:

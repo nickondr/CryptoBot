@@ -216,9 +216,9 @@ class BitmexClient:
                     if 'askPrice' in d:
                         self.prices[symbol]['ask'] = d['askPrice']
 
-                    if symbol == "XBTUSD":
+                    """if symbol == "XBTUSD":
                         self._add_log(symbol + " " + str(self.prices[symbol]['bid']) +
-                                                         " / " + str(self.prices[symbol]['ask']))
+                                                         " / " + str(self.prices[symbol]['ask']))"""
 
     def subscribe_channel(self, topic: str):
         data = dict()
