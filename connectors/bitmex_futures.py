@@ -3,13 +3,15 @@ import requests
 import time
 import typing
 from urllib.parse import urlencode
-
+import dateutil.parser
 import hmac
 import hashlib
 import websocket
 import json
 import threading
 from models import *
+from strategies import TechnicalStrategy, BreakoutStrategy
+
 
 logger = logging.getLogger()
 
@@ -33,6 +35,7 @@ class BitmexClient:
         self.balances = self.get_balances()
 
         self.prices = dict()
+        self.strategies: typing.Dict[int, typing.Union[TechnicalStrategy, BreakoutStrategy]] = dict()
 
         self.logs = []
 
@@ -163,7 +166,7 @@ class BitmexClient:
 
         return order_status
 
-    def get_order_status(self, order_id: str, contract: Contract) -> OrderStatus:
+    def get_order_status(self, contract: Contract, order_id: str) -> OrderStatus:
 
         data = dict()
         data['symbol'] = contract.symbol
@@ -190,6 +193,7 @@ class BitmexClient:
         logger.info("Bitmex connection opened")
 
         self.subscribe_channel("instrument")
+        self.subscribe_channel("trade")
 
     def _on_close(self, ws):
         logger.info("Bitmex Websocket connection closed")
@@ -216,9 +220,18 @@ class BitmexClient:
                     if 'askPrice' in d:
                         self.prices[symbol]['ask'] = d['askPrice']
 
-                    """if symbol == "XBTUSD":
-                        self._add_log(symbol + " " + str(self.prices[symbol]['bid']) +
-                                                         " / " + str(self.prices[symbol]['ask']))"""
+            if data['table'] == "trade":
+
+                for d in data['data']:
+
+                    symbol = d['symbol']
+
+                    ts = int(dateutil.parser.isoparse(d['timestamp']).timestamp() * 1000)
+
+                    for key, strat in self.strategies.items():
+                        if strat.contract.symbol == symbol:
+                            res = strat.parse_trades(float(d['price']), float(d['size']), ts)
+                            strat.check_trade(res)
 
     def subscribe_channel(self, topic: str):
         data = dict()
@@ -230,3 +243,27 @@ class BitmexClient:
             self._ws.send(json.dumps(data))
         except Exception as e:
             logger.error("Websocket error while subscribing to %s %s updates: %s", topic,  e)
+
+    def get_trade_size(self, contract: Contract, price: float, balance_pct: float):
+        balance = self.get_balances()
+        if balance is not None:
+            if 'XBt' in balance:
+                balance = balance["XBt"].wallet_balance
+            else:
+                return None
+        else:
+            return None
+
+        xbt_size = balance * balance_pct / 100
+
+        if contract.inverse:
+            contracts_number = xbt_size / (contract.multiplier / price)
+        elif contract.quanto:
+            contracts_number = xbt_size / (contract.multiplier * price)
+        else:
+            contracts_number = xbt_size / (contract.multiplier * price)
+
+        logger.info("Birtmex current XBT balance = %s, contract number = %s", balance, contracts_number)
+
+        return int(contracts_number)
+

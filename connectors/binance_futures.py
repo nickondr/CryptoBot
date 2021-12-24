@@ -3,13 +3,18 @@ import requests
 import time
 import hmac
 import hashlib
+
 from urllib.parse import urlencode
+
 import websocket
 import threading
 import json
+
 from models import *
+
 import typing
 
+from strategies import TechnicalStrategy, BreakoutStrategy
 
 logger = logging.getLogger()
 
@@ -33,11 +38,12 @@ class BinanceFuturesClient:
         self.balances = self.get_balances()
 
         self.prices = dict()
+        self.strategies: typing.Dict[int, typing.Union[TechnicalStrategy, BreakoutStrategy]] = dict()
+
+        self.logs = []
 
         self._ws_id = 1
         self._ws = None
-
-        self.logs = []
 
         t = threading.Thread(target=self._start_ws)
         t.start()
@@ -135,11 +141,11 @@ class BinanceFuturesClient:
 
         return balances
 
-    def place_order(self, contract: Contract, side: str, quantity: float,
-                    order_type: str, price=None, tif=None) -> OrderStatus:
+    def place_order(self, contract: Contract, order_type: str, quantity: float,
+                    side: str, price=None, tif=None) -> OrderStatus:
         data = dict()
         data['symbol'] = contract.symbol
-        data['side'] = side
+        data['side'] = side.upper()
         data['quantity'] = round(round(quantity / contract.lot_size) * contract.tick_size, 8)
         data['type'] = order_type
 
@@ -154,7 +160,7 @@ class BinanceFuturesClient:
 
         order_status = self._make_request("POST", "/fapi/v1/order", data)
 
-        if order_status not in None:
+        if order_status is not None:
             order_status = OrderStatus(order_status, "binance")
 
         return order_status
@@ -173,7 +179,7 @@ class BinanceFuturesClient:
 
         return order_status
 
-    def get_order_status(self, contract: Contract, order_id,) -> OrderStatus:
+    def get_order_status(self, contract: Contract, order_id: int) -> OrderStatus:
 
         data = dict()
 
@@ -184,14 +190,14 @@ class BinanceFuturesClient:
 
         order_status = self._make_request("GET", "/fapi/v1/order", data)
 
-        if order_status not in None:
+        if order_status is not None:
             order_status = OrderStatus(order_status, "binance")
 
         return order_status
 
     def _start_ws(self):
         self._ws = websocket.WebSocketApp(self._wss_url, on_open=self._on_open, on_close=self._on_close,
-                                         on_error=self._on_error, on_message=self._on_message)
+                                          on_error=self._on_error, on_message=self._on_message)
         while True:
             try:
                 self._ws.run_forever()
@@ -221,16 +227,46 @@ class BinanceFuturesClient:
                     self.prices[symbol]['bid'] = float(data['b'])
                     self.prices[symbol]['ask'] = float(data['a'])
 
+            elif data['e'] == "aggTrade":
+
+                symbol = data['s']
+
+                for key, strat in self.strategies.items():
+                    if strat.contract.symbol == symbol:
+                        res = strat.parse_trades(float(data['p']), float(data['q']), data['T'])
+                        strat.check_trade(res)
+
     def subscribe_channel(self, contracts: typing.List[Contract], channel: str):
         data = dict()
         data['method'] = "SUBSCRIBE"
         data['params'] = []
+
         for contract in contracts:
             data['params'].append(contract.symbol.lower() + "@" + channel)
             data['id'] = self._ws_id
+
         try:
             self._ws.send(json.dumps(data))
         except Exception as e:
-            logger.error("Websocket error while subscribing to %s %s updates: %s", len(contracts), channel,  e)
+            logger.error("Websocket error while subscribing to %s %s updates: %s", len(contracts), channel, e)
 
         self._ws_id += 1
+
+    def get_trade_size(self, contract: Contract, price: float, balance_pct: float):
+
+        balance = self.get_balances()
+        if balance is not None:
+            if 'USDT' in balance:
+                balance = balance["USDT"].wallet_balance
+            else:
+                return None
+        else:
+            return None
+
+        trade_size = (balance * balance_pct / 100) / price
+
+        trade_size = round(round(trade_size / contract.lot_size) * contract.lot_size, 8)
+
+        logger.info("Binance Futures current USDT balance = %s, trade size - %s", balance, trade_size)
+
+        return trade_size

@@ -41,6 +41,13 @@ class Candle:
             self.low = candle_info['low']
             self.close = candle_info['close']
             self.volume = candle_info['volume']
+        elif exchange == "parse_trade":
+            self.timestamp = candle_info['ts']
+            self.open = candle_info['open']
+            self.high = candle_info['high']
+            self.low = candle_info['low']
+            self.close = candle_info['close']
+            self.volume = candle_info['volume']
 
 
 def tick_to_decimals(tick_size: float) -> int:
@@ -76,14 +83,37 @@ class Contract:
             self.tick_size = contract_info['tickSize']
             self.lot_size = contract_info['lotSize']
 
+            self.quanto = contract_info['isQuanto']
+            self.inverse = contract_info['isInverse']
+
+            self.multiplier = contract_info['multiplier'] * BITMEX_MULTIPLIER
+
+            if self.inverse:
+                self.multiplier *= -1
+
+        self.exchange = exchange
+
 
 class OrderStatus:
     def __init__(self, order_info, exchange):
         if exchange == "binance":
-            self.order_id = order_info['orderID']
-            self.status = order_info['status']
+            self.order_id = order_info['orderId']
+            self.status = order_info['status'].lower()
             self.avg_price = float(order_info['avgPrice'])
         elif exchange == "bitmex":
-            self.order_id = order_info['orderID']
+            self.order_id = order_info['orderId']
             self.status = order_info['ordStatus']
             self.avg_price = order_info['avgPx']
+
+
+class Trade:
+    def __init__(self, trade_info):
+        self.time: int = trade_info['time']
+        self.contract: Contract = trade_info['contract']
+        self.strategy: str = trade_info['strategy']
+        self.side: str = trade_info['side']
+        self.entry_price: float = trade_info['entry_price']
+        self.status: str = trade_info['status']
+        self.pnl: float = trade_info['pnl']
+        self.quantity = trade_info['quantity']
+        self.entry_id = trade_info['entry_id']
