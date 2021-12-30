@@ -1,0 +1,11 @@
+2021-12-29 21:37:51,338 INFO :: Binance Futures Client successfully initialized
+2021-12-29 21:37:52,041 INFO :: Bitmex Client successfully initialized
+2021-12-29 21:37:52,150 INFO :: Binance connection opened
+2021-12-29 21:37:52,634 INFO :: Bitmex connection opened
+2021-12-29 21:39:02,241 INFO :: Binance New candle for BTCUSDT 1m
+2021-12-29 21:39:03,383 INFO :: Binance Futures current USDT balance = 95003.55226657, trade size - 0.02
+2021-12-29 21:39:03,383 INFO :: long signal on BTCUSDT 1m
+2021-12-29 21:39:03,983 INFO :: Buy order placed on Binance | Status: new
+2021-12-29 21:39:06,538 INFO :: Binance order status: filled
+2021-12-29 21:39:19,848 INFO :: Binance Websocket connection closed
+2021-12-29 21:39:19,987 INFO :: Bitmex Websocket connection closed
