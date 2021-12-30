@@ -43,7 +43,8 @@ class BinanceFuturesClient:
         self.logs = []
 
         self._ws_id = 1
-        self._ws = None
+        self.ws: websocket.WebSocketApp
+        self.reconnect = True
 
         t = threading.Thread(target=self._start_ws)
         t.start()
@@ -196,11 +197,14 @@ class BinanceFuturesClient:
         return order_status
 
     def _start_ws(self):
-        self._ws = websocket.WebSocketApp(self._wss_url, on_open=self._on_open, on_close=self._on_close,
+        self.ws = websocket.WebSocketApp(self._wss_url, on_open=self._on_open, on_close=self._on_close,
                                           on_error=self._on_error, on_message=self._on_message)
         while True:
             try:
-                self._ws.run_forever()
+                if self.reconnect:
+                    self.ws.run_forever()
+                else:
+                    break
             except Exception as e:
                 logger.error("Binance error in run_forever() method: %s", e)
             time.sleep(2)
@@ -209,7 +213,7 @@ class BinanceFuturesClient:
         logger.info("Binance connection opened")
         self.subscribe_channel(list(self.contracts.values()), "bookTicker")
 
-    def _on_close(self, ws):
+    def _on_close(self, ws, clos_status_code, close_msg):
         logger.info("Binance Websocket connection closed")
 
     def _on_error(self, ws, msg: str):
@@ -226,6 +230,18 @@ class BinanceFuturesClient:
                 else:
                     self.prices[symbol]['bid'] = float(data['b'])
                     self.prices[symbol]['ask'] = float(data['a'])
+
+                try:
+                    for b_index, strat in self.strategies.items():
+                        if strat.contract.symbol == symbol:
+                            for trade in strat.trades:
+                                if trade.status == "open" and trade.entry_price is not None:
+                                    if trade.side == "long":
+                                        trade.pnl = (self.prices[symbol]['bid'] - trade.entry_price) * trade.quantity
+                                    elif trade.side == "short":
+                                        trade.pnl = (trade.entry_price - self.prices[symbol]['ask']) * trade.quantity
+                except RuntimeError as e:
+                    logger.error("Error while looping through the Binance strategies: %s", e)
 
             elif data['e'] == "aggTrade":
 
@@ -246,7 +262,7 @@ class BinanceFuturesClient:
             data['id'] = self._ws_id
 
         try:
-            self._ws.send(json.dumps(data))
+            self.ws.send(json.dumps(data))
         except Exception as e:
             logger.error("Websocket error while subscribing to %s %s updates: %s", len(contracts), channel, e)
 

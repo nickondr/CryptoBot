@@ -1,0 +1,1 @@
+C:\Users\nwond\PycharmProjects\CryptoBot\venv\Scripts\python.exe C:/Users/nwond/PycharmProjects/CryptoBot/main.py

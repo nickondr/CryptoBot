@@ -102,7 +102,7 @@ class OrderStatus:
             self.avg_price = float(order_info['avgPrice'])
         elif exchange == "bitmex":
             self.order_id = order_info['orderId']
-            self.status = order_info['ordStatus']
+            self.status = order_info['ordStatus'].lower()
             self.avg_price = order_info['avgPx']
 
 

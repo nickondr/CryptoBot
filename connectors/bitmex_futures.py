@@ -29,7 +29,8 @@ class BitmexClient:
         self._public_key = public_key
         self._secret_key = secret_key
 
-        self._ws = None
+        self.ws: websocket.WebSocketApp
+        self.reconnect = True
 
         self.contracts = self.get_contracts()
         self.balances = self.get_balances()
@@ -180,11 +181,14 @@ class BitmexClient:
                     return OrderStatus(order, "bitmex")
 
     def _start_ws(self):
-        self._ws = websocket.WebSocketApp(self._wss_url, on_open=self._on_open, on_close=self._on_close,
+        self.ws = websocket.WebSocketApp(self._wss_url, on_open=self._on_open, on_close=self._on_close,
                                          on_error=self._on_error, on_message=self._on_message)
         while True:
             try:
-                self._ws.run_forever()
+                if self.reconnect:
+                    self.ws.run_forever()
+                else:
+                    break
             except Exception as e:
                 logger.error("Bitmex error in run_forever() method: %s", e)
             time.sleep(2)
@@ -195,7 +199,7 @@ class BitmexClient:
         self.subscribe_channel("instrument")
         self.subscribe_channel("trade")
 
-    def _on_close(self, ws):
+    def _on_close(self, ws, clos_status_code, close_msg):
         logger.info("Bitmex Websocket connection closed")
 
     def _on_error(self, ws, msg: str):
@@ -220,6 +224,32 @@ class BitmexClient:
                     if 'askPrice' in d:
                         self.prices[symbol]['ask'] = d['askPrice']
 
+                    try:
+
+                        for b_index, strat in self.strategies.items():
+                            if strat.contract.symbol == symbol:
+                                for trade in strat.trades:
+                                    if trade.status == "open" and trade.entry_price is not None:
+                                        if trade.side == "long":
+                                            price = self.prices[symbol]['bid']
+                                        else:
+                                            price = self.prices[symbol]['ask']
+                                        multiplier = trade.contract.multiplier
+
+                                        if trade.contract.inverse:
+                                            if trade.side == "long":
+                                                trade.pnl = (1 / trade.entry_price - 1 / price) * multiplier * trade.quantity
+                                            elif trade.side == "short":
+                                                trade.pnl = (1 / price - 1 / trade.entry_price) * multiplier * trade.quantity
+                                        else:
+                                            if trade.side == "long":
+                                                trade.pnl = (price - trade.entry_price) * multiplier * trade.quantity
+                                            elif trade.side == "short":
+                                                trade.pnl = (trade.entry_price - price) * multiplier * trade.quantity
+
+                    except RuntimeError as e:
+                        logger.error("Error while looping through the Binance strategies: %s", e)
+
             if data['table'] == "trade":
 
                 for d in data['data']:
@@ -240,7 +270,7 @@ class BitmexClient:
         data['args'].append(topic)
 
         try:
-            self._ws.send(json.dumps(data))
+            self.ws.send(json.dumps(data))
         except Exception as e:
             logger.error("Websocket error while subscribing to %s %s updates: %s", topic,  e)
 
@@ -263,7 +293,7 @@ class BitmexClient:
         else:
             contracts_number = xbt_size / (contract.multiplier * price)
 
-        logger.info("Birtmex current XBT balance = %s, contract number = %s", balance, contracts_number)
+        logger.info("Bitmex current XBT balance = %s, contract number = %s", balance, contracts_number)
 
         return int(contracts_number)
 
