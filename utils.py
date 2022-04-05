@@ -1,4 +1,4 @@
-def check_integer_format(text: str):
+def check_integer_format(text: str) -> bool:
     if text == "":
         return True
 
@@ -13,7 +13,7 @@ def check_integer_format(text: str):
         return False
 
 
-def check_float_format(text: str):
+def check_float_format(text: str) -> bool:
     if text == "":
         return True
 

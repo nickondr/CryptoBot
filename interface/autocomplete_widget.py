@@ -14,6 +14,7 @@ class Autocomplete(tk.Entry):
         self.bind("<Up>", self._up_down)
         self.bind("<Down>", self._up_down)
         self.bind("<Right>", self._select)
+        self.bind("<Enter>", self._select)
 
         self._var = tk.StringVar()
         self.configure(textvariable=self._var)
@@ -30,7 +31,7 @@ class Autocomplete(tk.Entry):
         else:
             if not self._lb_open:
                 self._lb = tk.Listbox(height=8)
-                self._lb.place(x=self.winfo_x() + self.winfo_width(), y=self.winfo_y() + self.winfo_height() + 10)
+                self._lb.place(x=self.winfo_x() + self.winfo_width(), y=self.winfo_y() + self.winfo_height() + 40)
 
                 self._lb_open = True
 
@@ -43,7 +44,7 @@ class Autocomplete(tk.Entry):
                 except tk.TclError:
                     pass
 
-                for symbol in symbols_matched:
+                for symbol in symbols_matched[:8]:
                     self._lb.insert(tk.END, symbol)
 
             else:
@@ -70,8 +71,8 @@ class Autocomplete(tk.Entry):
 
             if index > 0 and event.keysym == "Up":
                 self._lb.select_clear(first=index)
-                index = index - 1
-                self._lb.select_set(first=str(index))
+                index = str(index - 1)
+                self._lb.selection_set(first=str(index))
                 self._lb.activate(index)
             elif index < lb_size - 1 and event.keysym == "Down":
                 self._lb.select_clear(first=index)

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger()
 
-TF_EQUIV = {"1m": 60, "5m": 300, "30m": 1800, "1h": 3600, "4h": 14400}
+TF_EQUIV = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
 class Strategy:
@@ -91,12 +91,13 @@ class Strategy:
                 last_candle = new_candle
 
             new_ts = last_candle.timestamp + self.tf_equiv
-            candle_info = {'ts': new_ts, 'open': price, 'low': price, 'close': price, 'volume': size}
+            candle_info = {'ts': new_ts, 'open': price, 'high': price, 'low': price, 'close': price, 'volume': size}
             new_candle = Candle(candle_info, self.tf, "parse_trade")
 
             self.candles.append(new_candle)
 
             return "new_candle"
+
         # New Candle
 
         elif timestamp >= last_candle.timestamp + self.tf_equiv:
@@ -122,6 +123,7 @@ class Strategy:
                 for trade in self.trades:
                     if trade.entry_id == order_id:
                         trade.entry_price = order_status.avg_price
+                        trade.quantity = order_status.executed_qty
                         break
                 return
 
@@ -130,6 +132,9 @@ class Strategy:
 
     def _open_position(self, signal_result: int):
 
+        if self.client.platform == "binance_spot" and signal_result == -1:
+            return
+
         trade_size = self.client.get_trade_size(self.contract, self.candles[-1].close, self.balance_pct)
         if trade_size is None:
             return
@@ -137,7 +142,7 @@ class Strategy:
         order_side = "buy" if signal_result == 1 else "sell"
         position_side = "long" if signal_result == 1 else "short"
 
-        self._add_log(f"{position_side} signal on {self.contract.symbol} {self.tf}")
+        self._add_log(f"{position_side.capitalize()} signal on {self.contract.symbol} {self.tf}")
 
         order_status = self.client.place_order(self.contract, "MARKET", trade_size, order_side)
 
@@ -156,11 +161,12 @@ class Strategy:
 
             new_trade = Trade({"time": int(time.time() * 1000), "entry_price": avg_fill_price,
                                "contract": self.contract, "strategy": self.strat_name, "side": position_side,
-                               "status": "open", "pnl": 0, "quantity": trade_size, "entry_id": order_status.order_id})
-
+                               "status": "open", "pnl": 0, "quantity": order_status.executed_qty,
+                               "entry_id": order_status.order_id})
             self.trades.append(new_trade)
 
     def _check_tp_sl(self, trade: Trade):
+
         tp_triggered = False
         sl_triggered = False
 
@@ -176,7 +182,7 @@ class Strategy:
 
         elif trade.side == "short":
             if self.stop_loss is not None:
-                if price <= trade.entry_price * (1 * self.stop_loss / 100):
+                if price >= trade.entry_price * (1 + self.stop_loss / 100):
                     sl_triggered = True
             if self.take_profit is not None:
                 if price <= trade.entry_price * (1 - self.take_profit / 100):
@@ -184,9 +190,17 @@ class Strategy:
 
         if tp_triggered or sl_triggered:
 
-            self._add_log(f"{'Stop loss' if sl_triggered else 'Take profit'} for {self.contract.symbol} {self.tf}")
+            self._add_log(f"{'Stop loss' if sl_triggered else 'Take profit'} for {self.contract.symbol} {self.tf} "
+                          f"| Current Price = {price} (Entry price was {trade.entry_price}")
 
             order_side = "SELL" if trade.side == "long" else "BUY"
+
+            if not self.client.futures:
+                current_balances = self.client.get_balances()
+                if current_balances is not None:
+                    if order_side == "SELL" and self.contract.base_asset in current_balances:
+                        trade.quantity = min(current_balances[self.contract.base_asset].free, trade.quantity)
+
             order_status = self.client.place_order(self.contract, "MARKET", trade.quantity, order_side)
 
             if order_status is not None:
@@ -196,8 +210,8 @@ class Strategy:
 
 
 class TechnicalStrategy(Strategy):
-    def __init__(self, client, contract: Contract, exchange: str, timeframe: str, balance_pct: float, take_profit: float,
-                 stop_loss: float, other_params: Dict):
+    def __init__(self, client, contract: Contract, exchange: str, timeframe: str, balance_pct: float,
+                 take_profit: float, stop_loss: float, other_params: Dict):
         super().__init__(client, contract, exchange, timeframe, balance_pct, take_profit, stop_loss, "Technical")
 
         self._ema_fast = other_params['ema_fast']
@@ -267,8 +281,8 @@ class TechnicalStrategy(Strategy):
 
 
 class BreakoutStrategy(Strategy):
-    def __init__(self, client, contract: Contract, exchange: str, timeframe: str, balance_pct: float, take_profit: float,
-                 stop_loss: float, other_params: Dict):
+    def __init__(self, client, contract: Contract, exchange: str, timeframe: str, balance_pct: float,
+                 take_profit: float, stop_loss: float, other_params: Dict):
         super().__init__(client, contract, exchange, timeframe, balance_pct, take_profit, stop_loss, "Breakout")
 
         self._min_volume = other_params['min_volume']
@@ -277,7 +291,7 @@ class BreakoutStrategy(Strategy):
 
         if self.candles[-1].close > self.candles[-2].high and self.candles[-1].volume > self._min_volume:
             return 1
-        if self.candles[-1].close < self.candles[-2].low and self.candles[-1].volume > self._min_volume:
+        elif self.candles[-1].close < self.candles[-2].low and self.candles[-1].volume > self._min_volume:
             return -1
         else:
             return 0
@@ -286,10 +300,5 @@ class BreakoutStrategy(Strategy):
 
         if not self.ongoing_position:
             signal_result = self._check_signal()
-
             if signal_result in [1, -1]:
                 self._open_position(signal_result)
-
-
-
-
